@@ -5,8 +5,8 @@ import sys
 from io import open
 
 extras = {
-    'tcga': ['pandas~=0.24.0', 'academictorrents~=2.1.0', 'six~=1.11.0'],
-    'test': ['flaky']
+    'tcga': ['pandas>=1.0.0', 'academictorrents>=2.1.0', 'six>=1.11.0'],
+    'test': ['flaky', 'pytest']
 }
 
 here = path.abspath(path.dirname(__file__))
@@ -30,15 +30,16 @@ setup(
     url='https://github.com/tristandeleu/pytorch-meta',
     keywords=['meta-learning', 'pytorch', 'few-shot', 'few-shot learning'],
     packages=find_packages(exclude=['data', 'contrib', 'docs', 'tests', 'examples']),
+    python_requires='>=3.8',
     install_requires=[
-        'torch>=1.4.0,<1.10.0',
-        'torchvision>=0.5.0,<0.11.0',
-        'numpy>=1.14.0',
-        'Pillow>=7.0.0',
-        'h5py',
-        'tqdm>=4.0.0',
-        'requests',  # Required by Torchvision
-        'ordered-set'
+        'torch>=2.0.0',
+        'torchvision>=0.15.0',
+        'numpy>=1.20.0',
+        'Pillow>=9.0.0',
+        'h5py>=3.0.0',
+        'tqdm>=4.50.0',
+        'requests>=2.25.0',
+        'ordered-set>=4.0.0'
     ],
     extras_require=extras,
     package_data={'torchmeta': ['torchmeta/datasets/assets/*']},
@@ -48,9 +49,11 @@ setup(
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
         'Intended Audience :: Science/Research',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
         'License :: OSI Approved :: MIT License',
     ],
 )

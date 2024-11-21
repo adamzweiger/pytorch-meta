@@ -33,16 +33,22 @@ def get_asset(*args, dtype=None):
 # 
 # See also: https://github.com/pytorch/vision/issues/2992
 # 
-# The following functions are taken from
-# https://github.com/pytorch/vision/blob/cd0268cd408d19d91f870e36fdffd031085abe13/torchvision/datasets/utils.py
+# The following functions are our own implementation since they were removed from torchvision
 
-from torchvision.datasets.utils import _get_confirm_token, _save_response_content
+def _get_confirm_token(response):
+    for key, value in response.cookies.items():
+        if key.startswith('download_warning'):
+            return value
+    return None
 
-def _quota_exceeded(response: "requests.models.Response"):
+def _save_response_content(response, destination, chunk_size=32768):
+    with open(destination, "wb") as f:
+        for chunk in response.iter_content(chunk_size):
+            if chunk:  # filter out keep-alive new chunks
+                f.write(chunk)
+
+def _quota_exceeded(response):
     return False
-    # See https://github.com/pytorch/vision/issues/2992 for details
-    # return "Google Drive - Quota exceeded" in response.text
-
 
 def download_file_from_google_drive(file_id, root, filename=None, md5=None):
     """Download a Google Drive file from  and place it in root.
