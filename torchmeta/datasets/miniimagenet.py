@@ -171,20 +171,11 @@ class MiniImagenetClassDataset(ClassDataset):
         if self._check_integrity():
             return
         
-        filename = os.path.join(self.root, self.gz_filename)
 
         google_drive_link = "https://drive.google.com/file/d/16V_ZlkW4SsnNDtnGmaBRq2OoPmUOc5mY/view"
-        download_file_from_gdrive_gdown(google_drive_link, filename)
-        # download_file_from_google_drive(self.gdrive_id, self.root,
-        #     self.gz_filename, md5=self.gz_md5)
+        download_file_from_gdrive_gdown(google_drive_link, self.root, self.gz_filename)
 
-        # print(self.root)
-        # print(self.gz_filename)
-        # print(os.getcwd())
-        # print(filename)
-        # dir = os.path.join(os.getcwd(), 'data', 'miniimagenet')
-        # filename = os.path.join(dir, self.gz_filename)
-        # filename=r'.\data\miniimagenet\mini-imagenet.tar.gz'
+        filename = os.path.join(self.root, self.gz_filename)
 
         with tarfile.open(filename, 'r') as f:
             f.extractall(self.root)

@@ -51,7 +51,7 @@ def _save_response_content(response, destination, chunk_size=32768):
 def _quota_exceeded(response):
     return False
 
-def download_file_from_gdrive_gdown(shareable_link, output_file):
+def download_file_from_gdrive_gdown(shareable_link, root, filename):
     """
     Downloads a file from Google Drive using its shareable link.
 
@@ -67,6 +67,8 @@ def download_file_from_gdrive_gdown(shareable_link, output_file):
         file_id = shareable_link.split("/d/")[1].split("/")[0]
         download_url = f"https://drive.google.com/uc?id={file_id}"
         
+        os.makedirs(root, exist_ok=True)
+        output_file = os.path.join(root, filename)
         # Download the file
         gdown.download(download_url, output_file, quiet=False)
         print(f"File downloaded successfully as {output_file}")
