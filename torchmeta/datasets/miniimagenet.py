@@ -6,7 +6,7 @@ import json
 
 from torchmeta.utils.data import Dataset, ClassDataset, CombinationMetaDataset
 # QKFIX: See torchmeta.datasets.utils for more informations
-from torchmeta.datasets.utils import download_file_from_google_drive
+from torchmeta.datasets.utils import download_file_from_gdrive_gdown
 
 
 class MiniImagenet(CombinationMetaDataset):
@@ -170,11 +170,22 @@ class MiniImagenetClassDataset(ClassDataset):
 
         if self._check_integrity():
             return
-
-        download_file_from_google_drive(self.gdrive_id, self.root,
-            self.gz_filename, md5=self.gz_md5)
-
+        
         filename = os.path.join(self.root, self.gz_filename)
+
+        google_drive_link = "https://drive.google.com/file/d/16V_ZlkW4SsnNDtnGmaBRq2OoPmUOc5mY/view"
+        download_file_from_gdrive_gdown(google_drive_link, filename)
+        # download_file_from_google_drive(self.gdrive_id, self.root,
+        #     self.gz_filename, md5=self.gz_md5)
+
+        # print(self.root)
+        # print(self.gz_filename)
+        # print(os.getcwd())
+        # print(filename)
+        # dir = os.path.join(os.getcwd(), 'data', 'miniimagenet')
+        # filename = os.path.join(dir, self.gz_filename)
+        # filename=r'.\data\miniimagenet\mini-imagenet.tar.gz'
+
         with tarfile.open(filename, 'r') as f:
             f.extractall(self.root)
 

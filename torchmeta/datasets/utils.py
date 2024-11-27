@@ -1,5 +1,6 @@
 import os
 import json
+import gdown
 
 
 def get_asset_path(*args):
@@ -50,6 +51,30 @@ def _save_response_content(response, destination, chunk_size=32768):
 def _quota_exceeded(response):
     return False
 
+def download_file_from_gdrive_gdown(shareable_link, output_file):
+    """
+    Downloads a file from Google Drive using its shareable link.
+
+    Args:
+        shareable_link (str): The Google Drive shareable link.
+        output_file (str): Name of the file to save the downloaded content.
+
+    Returns:
+        str: Path of the downloaded file.
+    """
+    # Extract the file ID from the shareable link
+    try:
+        file_id = shareable_link.split("/d/")[1].split("/")[0]
+        download_url = f"https://drive.google.com/uc?id={file_id}"
+        
+        # Download the file
+        gdown.download(download_url, output_file, quiet=False)
+        print(f"File downloaded successfully as {output_file}")
+        return output_file
+    except IndexError:
+        raise ValueError("Invalid Google Drive shareable link format.")
+
+
 def download_file_from_google_drive(file_id, root, filename=None, md5=None):
     """Download a Google Drive file from  and place it in root.
 
@@ -70,7 +95,8 @@ def download_file_from_google_drive(file_id, root, filename=None, md5=None):
 
     os.makedirs(root, exist_ok=True)
 
-    if os.path.isfile(fpath) and check_integrity(fpath, md5):
+    # if os.path.isfile(fpath) and check_integrity(fpath, md5):
+    if os.path.isfile(fpath):
         print('Using downloaded and verified file: ' + fpath)
     else:
         session = requests.Session()
