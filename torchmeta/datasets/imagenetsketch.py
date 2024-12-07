@@ -113,7 +113,7 @@ class ImagenetSketchClassDataset(ClassDataset):
 
         filename = os.path.join(self.root, self.zip_filename)
 
-        with zipfile.open(filename, 'r') as f:
+        with zipfile.ZipFile(filename, 'r') as f:
             f.extractall(self.root)
 
         for split in ['train', 'val', 'test']:
