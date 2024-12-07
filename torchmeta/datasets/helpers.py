@@ -1,6 +1,6 @@
 import warnings
 
-from torchmeta.datasets import (Omniglot, MiniImagenet, TieredImagenet, CIFARFS,
+from torchmeta.datasets import (Omniglot, MiniImagenet, TieredImagenet, ImagenetSketch, CIFARFS,
                                 FC100, CUB, DoubleMNIST, TripleMNIST, Pascal5i)
 from torchmeta.transforms import Categorical, ClassSplitter, Rotation, SegmentationPairTransform
 from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor
@@ -123,6 +123,15 @@ def miniimagenet(folder, shots, ways, shuffle=True, test_shots=None,
     }
 
     return helper_with_default(MiniImagenet, folder, shots, ways,
+                               shuffle=shuffle, test_shots=test_shots,
+                               seed=seed, defaults=defaults, **kwargs)
+
+def imagenet_sketch(folder, shots, ways, shuffle=True, test_shots=None,
+                 seed=None, **kwargs):
+    defaults = {
+        'transform': Compose([Resize(84), ToTensor()])
+    }
+    return helper_with_default(ImagenetSketch, folder, shots, ways,
                                shuffle=shuffle, test_shots=test_shots,
                                seed=seed, defaults=defaults, **kwargs)
 
