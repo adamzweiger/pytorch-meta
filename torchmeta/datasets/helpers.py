@@ -13,7 +13,8 @@ __all__ = [
     'fc100',
     'cub',
     'doublemnist',
-    'triplemnist'
+    'triplemnist',
+    'imagenetsketch'
 ]
 
 def helper_with_default(klass, folder, shots, ways, shuffle=True,
@@ -126,7 +127,7 @@ def miniimagenet(folder, shots, ways, shuffle=True, test_shots=None,
                                shuffle=shuffle, test_shots=test_shots,
                                seed=seed, defaults=defaults, **kwargs)
 
-def imagenet_sketch(folder, shots, ways, shuffle=True, test_shots=None,
+def imagenetsketch(folder, shots, ways, shuffle=True, test_shots=None,
                  seed=None, **kwargs):
     defaults = {
         'transform': Compose([Resize(84), ToTensor()])
