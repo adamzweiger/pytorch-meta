@@ -108,7 +108,7 @@ class ImagenetSketchClassDataset(ClassDataset):
             return
         
 
-        google_drive_link = "https://drive.google.com/file/d/16V_ZlkW4SsnNDtnGmaBRq2OoPmUOc5mY/view"
+        google_drive_link = "https://drive.google.com/file/d/1Mj0i5HBthqH1p_yeXzsg22gZduvgoNeA/view"
         download_file_from_gdrive_gdown(google_drive_link, self.root, self.zip_filename)
 
         filename = os.path.join(self.root, self.zip_filename)
