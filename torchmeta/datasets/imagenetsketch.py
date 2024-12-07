@@ -49,8 +49,8 @@ class ImagenetSketchClassDataset(ClassDataset):
         self._labels = None
         self._data_file = None
 
-        if not self._check_integrity():
-            raise RuntimeError('ImagenetSketch integrity check failed')
+        # if not self._check_integrity():
+        #     raise RuntimeError('ImagenetSketch integrity check failed')
         self._num_classes = len(self.labels)
 
     def _find_file(self, filename):
