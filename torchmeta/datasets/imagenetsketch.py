@@ -214,7 +214,7 @@ class ImagenetSketchDataset(Dataset):
         self.data = data
         self.class_name = class_name
         self.images = self.data[self.class_name]
-        self.repeat_transform = Lambda(lambda x: x.repeat(3, 1, 1))
+        # self.repeat_transform = Lambda(lambda x: x.repeat(3, 1, 1))
 
     def __len__(self):
         return self.images.shape[0]
@@ -223,8 +223,8 @@ class ImagenetSketchDataset(Dataset):
         image = Image.fromarray(self.images[idx])
         target = self.class_name
 
-        if image.shape[2] == 1:
-            image = self.repeat_transform(image)
+        # if image.shape[2] == 1:
+        #     image = self.repeat_transform(image)
         if self.transform is not None:
             image = self.transform(image)
         if self.target_transform is not None:
