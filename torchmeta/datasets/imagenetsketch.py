@@ -145,7 +145,8 @@ class ImagenetSketchClassDataset(ClassDataset):
                 print("Downloading dataset zip from Google Drive...")
                 
                 # url = f"https://drive.google.com/uc?id={self.GDRIVE_FILE_ID}"
-                url = "https://drive.google.com/uc?id=1VcuZ2dNv91Ex5pihUsbOQh3jipXNheZG"
+                # url = "https://drive.google.com/uc?id=1VcuZ2dNv91Ex5pihUsbOQh3jipXNheZG"
+                url = "https://drive.google.com/uc?id=1aVyWuH7uqG4drFnYpGoHEEurB5RdmO4C"
                 gdown.download(url, zip_path, quiet=False)
             print("Extracting dataset zip...")
             with zipfile.ZipFile(zip_path, 'r') as zf:
