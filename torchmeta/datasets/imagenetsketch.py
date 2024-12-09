@@ -55,7 +55,7 @@ class ImagenetSketchClassDataset(ClassDataset):
     # After downloading and extracting this zip, we should get:
     #  - imagenet_sketch_resized.hdf5
     #  - imagenet_sketch_labels.json
-    full_hdf5 = 'imagenet_sketch_resized.hdf5'
+    full_hdf5 = 'imagenet_sketch_resized_revised.hdf5'
     full_labels = 'imagenet_sketch_labels.json'
 
     # Split files format
