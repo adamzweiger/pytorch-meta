@@ -4,52 +4,63 @@ import h5py
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
-
 from torchmeta.utils.data import Dataset, ClassDataset, CombinationMetaDataset
-from huggingface_hub import hf_hub_download
+from huggingface_hub import hf_hub_download, HfApi, login
+
+# Define class splits (for example purposes)
+# Assuming 1000 classes total
+CLASS_SPLITS = {
+    'train': (0, 640),
+    'val': (640, 800),
+    'test': (800, 1000)
+}
 
 class ImagenetSketch(CombinationMetaDataset):
     """
-    Imagenet-Sketch dataset
-    GitHub: https://github.com/HaohanWang/ImageNet-Sketch
-    Paper: https://arxiv.org/abs/1905.13549
-
-    This class follows a similar structure to the MiniImagenet class, but the dataset
-    is provided as a single HDF5 file and a single labels JSON file from a Hugging Face
-    repository. There are no predefined splits for train/val/test. If meta_train, meta_val,
-    or meta_test is specified, we currently treat the entire dataset as one split.
+    Imagenet-Sketch dataset with MiniImagenet-style splits.
+    We assume three splits: train, val, test.
+    The files are named train_data.hdf5, train_labels.json, etc.
+    If these files are not found, we will try to download them.
     """
     def __init__(self, root, num_classes_per_task=None, meta_train=False,
                  meta_val=False, meta_test=False, meta_split=None,
                  transform=None, target_transform=None, dataset_transform=None,
                  class_augmentations=None, download=False):
 
-        # If no meta_split given, default to 'train'
-        # The dataset does not have separate splits, so we ignore differences.
-        if meta_split is None:
-            meta_split = 'train'
+        # Determine the meta_split from the boolean flags
+        # Same logic as MiniImagenet
         if sum([meta_train, meta_val, meta_test]) > 1:
-            raise ValueError("Only one of meta_train, meta_val, meta_test can be True.")
-        
-        # We do not have different splits, so we just treat the entire dataset as a single split
-        # The chosen meta_split will be 'train' for consistency.
-        meta_split = 'train'
+            raise ValueError("Only one of meta_train/meta_val/meta_test can be True.")
+        if meta_split is None:
+            if meta_train:
+                meta_split = 'train'
+            elif meta_val:
+                meta_split = 'val'
+            elif meta_test:
+                meta_split = 'test'
+            else:
+                raise ValueError("One of meta_train/meta_val/meta_test must be True or meta_split must be provided.")
 
-        dataset = ImagenetSketchClassDataset(root, meta_train=(meta_split=='train'),
+        dataset = ImagenetSketchClassDataset(
+            root, meta_train=(meta_split=='train'),
             meta_val=(meta_split=='val'), meta_test=(meta_split=='test'),
             meta_split=meta_split, transform=transform, class_augmentations=class_augmentations,
-            download=download)
+            download=download
+        )
         super(ImagenetSketch, self).__init__(dataset, num_classes_per_task,
             target_transform=target_transform, dataset_transform=dataset_transform)
 
 
 class ImagenetSketchClassDataset(ClassDataset):
     folder = 'imagenetsketch'
-    # Names of the files on the huggingface repository
-    hdf5_filename = 'imagenet_sketch_resized.hdf5'
-    labels_filename = 'imagenet_sketch_labels.json'
+    # Original full dataset files
+    full_hdf5 = 'imagenet_sketch_resized.hdf5'
+    full_labels = 'imagenet_sketch_labels.json'
 
-    # Unlike miniimagenet, we have a single file for the entire dataset.
+    # Split files format
+    filename = '{0}_data.hdf5'
+    filename_labels = '{0}_labels.json'
+
     def __init__(self, root, meta_train=False, meta_val=False, meta_test=False,
                  meta_split=None, transform=None, class_augmentations=None,
                  download=False):
@@ -60,8 +71,11 @@ class ImagenetSketchClassDataset(ClassDataset):
         self.root = os.path.join(os.path.expanduser(root), self.folder)
         self.transform = transform
 
-        self.split_filename = os.path.join(self.root, self.hdf5_filename)
-        self.split_filename_labels = os.path.join(self.root, self.labels_filename)
+        # Determine which split files to use
+        self.split_filename = os.path.join(self.root,
+            self.filename.format(self.meta_split))
+        self.split_filename_labels = os.path.join(self.root,
+            self.filename_labels.format(self.meta_split))
 
         self._data_file = None
         self._data = None
@@ -73,31 +87,19 @@ class ImagenetSketchClassDataset(ClassDataset):
             self.download()
 
         if not self._check_integrity():
-            raise RuntimeError('ImagenetSketch integrity check failed')
+            raise RuntimeError('ImagenetSketch integrity check failed for split {}.'.format(self.meta_split))
 
-        # Once integrity is confirmed, we load labels and form class groups
-        image_labels = self._load_image_labels()
-        self._initialize_class_info(image_labels)
+        # Once integrity is confirmed, load data
+        self._initialize_data()
 
         self._num_classes = len(self.class_names)
 
-    def _initialize_class_info(self, image_labels):
-        # image_labels: list of int labels for each image index
-        unique_labels = sorted(set(image_labels))
-        # Convert each unique label into a string class name, similar to MiniImagenet
-        self.class_names = [str(l) for l in unique_labels]
-
-        # Build a dictionary of class_name -> list of image indices
-        class_dict = {cn: [] for cn in self.class_names}
-        for i, lbl in enumerate(image_labels):
-            class_dict[str(lbl)].append(i)
-
-        self.class_dict = class_dict
-
-    def _load_image_labels(self):
+    def _initialize_data(self):
+        # load class names and indices from labels
         with open(self.split_filename_labels, 'r') as f:
-            labels = json.load(f)
-        return labels
+            self.class_names = json.load(f)  # list of class names (strings)
+        # self.class_names sorted is assumed
+        self.class_dict = {cn: list(range(len(self.data[cn]))) for cn in self.class_names}
 
     @property
     def num_classes(self):
@@ -111,16 +113,10 @@ class ImagenetSketchClassDataset(ClassDataset):
         return self._data
 
     def __getitem__(self, index):
-        # index here refers to class index in meta-learning scenario
         class_name = self.class_names[index % self.num_classes]
-        # Get all image indices belonging to this class
-        indices = self.class_dict[class_name]
-
         transform = self.get_transform(index, self.transform)
         target_transform = self.get_target_transform(index)
-
-        return ImagenetSketchDataset(index, self.data, class_name, indices,
-                                     transform=transform, target_transform=target_transform)
+        return ImagenetSketchDataset(index, self.data, class_name, transform=transform, target_transform=target_transform)
 
     def _check_integrity(self):
         return os.path.isfile(self.split_filename) and os.path.isfile(self.split_filename_labels)
@@ -132,42 +128,117 @@ class ImagenetSketchClassDataset(ClassDataset):
             self._data = None
 
     def download(self):
+        # If files are already there, return
         if self._check_integrity():
             return
 
-        print("Downloading Imagenet-Sketch dataset from Hugging Face...")
+        # Check if split files exist (train/val/test)
+        # If they do not, we must:
+        # 1. Download the full dataset if not present.
+        # 2. Create the split files.
+        if not os.path.isfile(os.path.join(self.root, self.full_hdf5)) or not os.path.isfile(os.path.join(self.root, self.full_labels)):
+            print("Downloading full Imagenet-Sketch dataset from Hugging Face...")
+            os.makedirs(self.root, exist_ok=True)
+            # Make sure you have permission. If private, provide a token parameter.
+            hf_hub_download(repo_id="janellecai/imagenet_sketch_resized", filename=self.full_hdf5, cache_dir=self.root, force_filename=self.full_hdf5)
+            hf_hub_download(repo_id="janellecai/imagenet_sketch_resized", filename=self.full_labels, cache_dir=self.root, force_filename=self.full_labels)
 
-        # Download files from the Hugging Face repo "janellecai/imagenet_sketch_resized"
-        os.makedirs(self.root, exist_ok=True)
-        hf_hub_download(repo_id="janellecai/imagenet_sketch_resized", filename=self.hdf5_filename, cache_dir=self.root, force_filename=self.hdf5_filename)
-        hf_hub_download(repo_id="janellecai/imagenet_sketch_resized", filename=self.labels_filename, cache_dir=self.root, force_filename=self.labels_filename)
+        # Create split files if not present
+        for split in ['train', 'val', 'test']:
+            split_data_path = os.path.join(self.root, self.filename.format(split))
+            split_labels_path = os.path.join(self.root, self.filename_labels.format(split))
+            if not (os.path.isfile(split_data_path) and os.path.isfile(split_labels_path)):
+                self._create_split_files()
 
-        print("Dataset download complete.")
+    def _create_split_files(self):
+        # Load full dataset and labels
+        with h5py.File(os.path.join(self.root, self.full_hdf5), 'r') as f:
+            full_data = f['datasets']
+            with open(os.path.join(self.root, self.full_labels), 'r') as lf:
+                full_labels = json.load(lf)
 
+        # Determine unique classes
+        unique_classes = sorted(set(full_labels))
+        # Create splits
+        train_range = CLASS_SPLITS['train']
+        val_range = CLASS_SPLITS['val']
+        test_range = CLASS_SPLITS['test']
+
+        train_classes = unique_classes[train_range[0]:train_range[1]]
+        val_classes = unique_classes[val_range[0]:val_range[1]]
+        test_classes = unique_classes[test_range[0]:test_range[1]]
+
+        # Class names as strings
+        train_class_names = [str(c) for c in train_classes]
+        val_class_names = [str(c) for c in val_classes]
+        test_class_names = [str(c) for c in test_classes]
+
+        # Group images by class for splitting
+        class_to_indices = {str(c): [] for c in unique_classes}
+        for i, lbl in enumerate(full_labels):
+            class_to_indices[str(lbl)].append(i)
+
+        # Create each split hdf5 and labels
+        self._write_split_files('train', train_class_names, class_to_indices, full_data)
+        self._write_split_files('val', val_class_names, class_to_indices, full_data)
+        self._write_split_files('test', test_class_names, class_to_indices, full_data)
+
+    def _write_split_files(self, split, class_names, class_to_indices, full_data):
+        split_data_path = os.path.join(self.root, self.filename.format(split))
+        split_labels_path = os.path.join(self.root, self.filename_labels.format(split))
+        with h5py.File(split_data_path, 'w') as f:
+            group = f.create_group('datasets')
+            for cn in class_names:
+                indices = class_to_indices[cn]
+                # Collect images for this class
+                imgs = [full_data[str(i)][:] for i in indices]
+                imgs = np.stack(imgs, axis=0)
+                group.create_dataset(cn, data=imgs, compression="gzip")
+        with open(split_labels_path, 'w') as lf:
+            json.dump(class_names, lf)
+        print(f"Created {split} split files.")
 
 class ImagenetSketchDataset(Dataset):
-    def __init__(self, index, data, class_name, indices,
+    def __init__(self, index, data, class_name,
                  transform=None, target_transform=None):
         super(ImagenetSketchDataset, self).__init__(index, transform=transform,
                                                     target_transform=target_transform)
         self.data = data
         self.class_name = class_name
-        self.indices = indices
+        self.images = self.data[self.class_name]  # all images for this class
 
     def __len__(self):
-        return len(self.indices)
+        return self.images.shape[0]
 
-    def __getitem__(self, index):
-        # index here is the index within the class-specific subset
-        image_index = self.indices[index]
-        image = self.data[str(image_index)][:]  # Load the image array
-        image = Image.fromarray(image)
+    def __getitem__(self, idx):
+        image = Image.fromarray(self.images[idx])
         target = self.class_name
 
         if self.transform is not None:
             image = self.transform(image)
-
         if self.target_transform is not None:
             target = self.target_transform(target)
-
         return (image, target)
+
+
+###############################################
+# SCRIPT TO UPDATE THE RESULT BACK TO HF
+###############################################
+def upload_splits_to_hf(local_dir, repo_name, token):
+    # Authenticate to Hugging Face
+    api = HfApi()
+    login(token=token)
+    print("Logged in to Hugging Face")
+
+    # Upload the entire directory (which now contains train/val/test splits)
+    api.upload_folder(
+        folder_path=local_dir,
+        repo_id=repo_name,
+        repo_type="dataset",
+        create_pr=False
+    )
+    print(f"Updated dataset uploaded to Hugging Face: https://huggingface.co/datasets/{repo_name}")
+
+# Example usage (run once locally after splits are created):
+# token = "YOUR_HF_TOKEN_HERE"
+# upload_splits_to_hf("./imagenetsketch", "janellecai/imagenet_sketch_resized", token)
