@@ -1,150 +1,103 @@
 import os
-import h5py
 import json
+import h5py
 import numpy as np
 from PIL import Image
-import requests
 from tqdm import tqdm
 
 from torchmeta.utils.data import Dataset, ClassDataset, CombinationMetaDataset
+from huggingface_hub import hf_hub_download
 
 class ImagenetSketch(CombinationMetaDataset):
+    """
+    Imagenet-Sketch dataset
+    GitHub: https://github.com/HaohanWang/ImageNet-Sketch
+    Paper: https://arxiv.org/abs/1905.13549
+
+    This class follows a similar structure to the MiniImagenet class, but the dataset
+    is provided as a single HDF5 file and a single labels JSON file from a Hugging Face
+    repository. There are no predefined splits for train/val/test. If meta_train, meta_val,
+    or meta_test is specified, we currently treat the entire dataset as one split.
+    """
     def __init__(self, root, num_classes_per_task=None, meta_train=False,
                  meta_val=False, meta_test=False, meta_split=None,
                  transform=None, target_transform=None, dataset_transform=None,
-                 class_augmentations=None, download=True):  # Changed default download to True
-        dataset = ImagenetSketchClassDataset(root, meta_train=meta_train,
-            meta_val=meta_val, meta_test=meta_test, meta_split=meta_split,
-            transform=transform, class_augmentations=class_augmentations,
+                 class_augmentations=None, download=False):
+
+        # If no meta_split given, default to 'train'
+        # The dataset does not have separate splits, so we ignore differences.
+        if meta_split is None:
+            meta_split = 'train'
+        if sum([meta_train, meta_val, meta_test]) > 1:
+            raise ValueError("Only one of meta_train, meta_val, meta_test can be True.")
+        
+        # We do not have different splits, so we just treat the entire dataset as a single split
+        # The chosen meta_split will be 'train' for consistency.
+        meta_split = 'train'
+
+        dataset = ImagenetSketchClassDataset(root, meta_train=(meta_split=='train'),
+            meta_val=(meta_split=='val'), meta_test=(meta_split=='test'),
+            meta_split=meta_split, transform=transform, class_augmentations=class_augmentations,
             download=download)
         super(ImagenetSketch, self).__init__(dataset, num_classes_per_task,
             target_transform=target_transform, dataset_transform=dataset_transform)
 
+
 class ImagenetSketchClassDataset(ClassDataset):
+    folder = 'imagenetsketch'
+    # Names of the files on the huggingface repository
+    hdf5_filename = 'imagenet_sketch_resized.hdf5'
+    labels_filename = 'imagenet_sketch_labels.json'
+
+    # Unlike miniimagenet, we have a single file for the entire dataset.
     def __init__(self, root, meta_train=False, meta_val=False, meta_test=False,
                  meta_split=None, transform=None, class_augmentations=None,
-                 download=True):  # Changed default download to True
+                 download=False):
         super(ImagenetSketchClassDataset, self).__init__(meta_train=meta_train,
             meta_val=meta_val, meta_test=meta_test, meta_split=meta_split,
             class_augmentations=class_augmentations)
-        
-        self.root = root
+
+        self.root = os.path.join(os.path.expanduser(root), self.folder)
         self.transform = transform
 
-        # Potential filenames
-        potential_filenames = [
-            'imagenet_sketch_resized.hdf5',  # HuggingFace upload filename
-            'train_data.hdf5',  # Original torchmeta filename
-        ]
-
-        # Potential label filenames
-        potential_label_filenames = [
-            'imagenet_sketch_labels.json',  # HuggingFace upload filename
-            'train_labels.json',  # Original torchmeta filename
-        ]
-
-        # Ensure root directory exists
-        os.makedirs(self.root, exist_ok=True)
-
-        # Download dataset if requested or files are missing
-        if download:
-            self._download_dataset()
-
-        # Find HDF5 file
-        self.hdf5_path = self._find_file(potential_filenames)
-        if not self.hdf5_path:
-            raise FileNotFoundError("Could not find HDF5 dataset file. Try downloading.")
-
-        # Find labels file
-        self.labels_path = self._find_file(potential_label_filenames)
-        if not self.labels_path:
-            raise FileNotFoundError("Could not find labels file. Try downloading.")
+        self.split_filename = os.path.join(self.root, self.hdf5_filename)
+        self.split_filename_labels = os.path.join(self.root, self.labels_filename)
 
         self._data_file = None
         self._data = None
         self._labels = None
+        self.class_names = None
+        self.class_dict = None
 
-        # Populate labels and prepare dataset
-        self._num_classes = len(self.labels)
+        if download:
+            self.download()
 
-    def _download_dataset(self):
-        """
-        Download ImageNet Sketch dataset from Hugging Face
-        """
-        # HuggingFace repository details
-        repo = 'janellecai/imagenet_sketch_resized'
-        base_url = f'https://huggingface.co/{repo}/resolve/main/'
-        
-        # Files to download
-        files_to_download = {
-            'imagenet_sketch_resized.hdf5': 'train_data.hdf5',
-            'imagenet_sketch_labels.json': 'train_labels.json'
-        }
+        if not self._check_integrity():
+            raise RuntimeError('ImagenetSketch integrity check failed')
 
-        for remote_filename, local_filename in files_to_download.items():
-            local_path = os.path.join(self.root, local_filename)
-            remote_url = base_url + remote_filename
+        # Once integrity is confirmed, we load labels and form class groups
+        image_labels = self._load_image_labels()
+        self._initialize_class_info(image_labels)
 
-            # Skip if file already exists
-            if os.path.exists(local_path):
-                print(f"{local_filename} already exists. Skipping download.")
-                continue
+        self._num_classes = len(self.class_names)
 
-            print(f"Downloading {remote_filename}...")
-            
-            # Streaming download with progress bar
-            response = requests.get(remote_url, stream=True)
-            response.raise_for_status()
-            
-            total_size = int(response.headers.get('content-length', 0))
-            block_size = 1024  # 1 Kibibyte
-            
-            with open(local_path, 'wb') as file, tqdm(
-                desc=local_filename,
-                total=total_size,
-                unit='iB',
-                unit_scale=True,
-                unit_divisor=1024,
-            ) as progress_bar:
-                for data in response.iter_content(block_size):
-                    size = file.write(data)
-                    progress_bar.update(size)
+    def _initialize_class_info(self, image_labels):
+        # image_labels: list of int labels for each image index
+        unique_labels = sorted(set(image_labels))
+        # Convert each unique label into a string class name, similar to MiniImagenet
+        self.class_names = [str(l) for l in unique_labels]
 
-            print(f"Download complete: {local_filename}")
+        # Build a dictionary of class_name -> list of image indices
+        class_dict = {cn: [] for cn in self.class_names}
+        for i, lbl in enumerate(image_labels):
+            class_dict[str(lbl)].append(i)
 
-    def _find_file(self, possible_filenames):
-        """
-        Search for the file in multiple potential locations
-        """
-        search_paths = [
-            self.root,
-            os.path.join(self.root, 'imagenetsketch'),
-            os.path.join(os.path.expanduser('~'), 'datasets', 'imagenetsketch'),
-            os.getcwd()
-        ]
-        
-        for path in search_paths:
-            for filename in possible_filenames:
-                full_path = os.path.join(path, filename)
-                if os.path.isfile(full_path):
-                    return full_path
-        return None
+        self.class_dict = class_dict
 
-    # Rest of the code remains the same as in the original file
-    def __getitem__(self, index):
-        class_name = self.labels[index % self.num_classes]
-        
-        # Find indices for this class
-        class_indices = [i for i, label in enumerate(self.labels) if label == class_name]
-        
-        # Select a random index for this class
-        class_index = class_indices[index % len(class_indices)]
-        
-        transform = self.get_transform(index, self.transform)
-        target_transform = self.get_target_transform(index)
-
-        return ImagenetSketchDataset(index, self.data, class_name, class_index,
-            transform=transform, target_transform=target_transform)
+    def _load_image_labels(self):
+        with open(self.split_filename_labels, 'r') as f:
+            labels = json.load(f)
+        return labels
 
     @property
     def num_classes(self):
@@ -153,24 +106,24 @@ class ImagenetSketchClassDataset(ClassDataset):
     @property
     def data(self):
         if self._data is None:
-            # Open HDF5 file
-            self._data_file = h5py.File(self.hdf5_path, 'r')
-            
-            # Access the 'datasets' group
-            if 'datasets' in self._data_file:
-                self._data = self._data_file['datasets']
-            else:
-                # Fallback to root-level dataset
-                self._data = self._data_file
+            self._data_file = h5py.File(self.split_filename, 'r')
+            self._data = self._data_file['datasets']
         return self._data
 
-    @property
-    def labels(self):
-        if self._labels is None:
-            # Load labels from JSON
-            with open(self.labels_path, 'r') as f:
-                self._labels = json.load(f)
-        return self._labels
+    def __getitem__(self, index):
+        # index here refers to class index in meta-learning scenario
+        class_name = self.class_names[index % self.num_classes]
+        # Get all image indices belonging to this class
+        indices = self.class_dict[class_name]
+
+        transform = self.get_transform(index, self.transform)
+        target_transform = self.get_target_transform(index)
+
+        return ImagenetSketchDataset(index, self.data, class_name, indices,
+                                     transform=transform, target_transform=target_transform)
+
+    def _check_integrity(self):
+        return os.path.isfile(self.split_filename) and os.path.isfile(self.split_filename_labels)
 
     def close(self):
         if self._data_file is not None:
@@ -178,21 +131,37 @@ class ImagenetSketchClassDataset(ClassDataset):
             self._data_file = None
             self._data = None
 
+    def download(self):
+        if self._check_integrity():
+            return
+
+        print("Downloading Imagenet-Sketch dataset from Hugging Face...")
+
+        # Download files from the Hugging Face repo "janellecai/imagenet_sketch_resized"
+        os.makedirs(self.root, exist_ok=True)
+        hf_hub_download(repo_id="janellecai/imagenet_sketch_resized", filename=self.hdf5_filename, cache_dir=self.root, force_filename=self.hdf5_filename)
+        hf_hub_download(repo_id="janellecai/imagenet_sketch_resized", filename=self.labels_filename, cache_dir=self.root, force_filename=self.labels_filename)
+
+        print("Dataset download complete.")
+
+
 class ImagenetSketchDataset(Dataset):
-    def __init__(self, index, data, class_name, class_index,
+    def __init__(self, index, data, class_name, indices,
                  transform=None, target_transform=None):
         super(ImagenetSketchDataset, self).__init__(index, transform=transform,
-                                                  target_transform=target_transform)
+                                                    target_transform=target_transform)
         self.data = data
         self.class_name = class_name
-        self.class_index = class_index
+        self.indices = indices
 
     def __len__(self):
-        return len(self.data)
+        return len(self.indices)
 
     def __getitem__(self, index):
-        # Get the image from the HDF5 dataset
-        image = Image.fromarray(self.data[self.class_index])
+        # index here is the index within the class-specific subset
+        image_index = self.indices[index]
+        image = self.data[str(image_index)][:]  # Load the image array
+        image = Image.fromarray(image)
         target = self.class_name
 
         if self.transform is not None:
@@ -201,4 +170,4 @@ class ImagenetSketchDataset(Dataset):
         if self.target_transform is not None:
             target = self.target_transform(target)
 
-        return image, target
+        return (image, target)
