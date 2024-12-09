@@ -3,6 +3,8 @@ import h5py
 import json
 import numpy as np
 from PIL import Image
+import requests
+from tqdm import tqdm
 
 from torchmeta.utils.data import Dataset, ClassDataset, CombinationMetaDataset
 
@@ -10,7 +12,7 @@ class ImagenetSketch(CombinationMetaDataset):
     def __init__(self, root, num_classes_per_task=None, meta_train=False,
                  meta_val=False, meta_test=False, meta_split=None,
                  transform=None, target_transform=None, dataset_transform=None,
-                 class_augmentations=None, download=False):
+                 class_augmentations=None, download=True):  # Changed default download to True
         dataset = ImagenetSketchClassDataset(root, meta_train=meta_train,
             meta_val=meta_val, meta_test=meta_test, meta_split=meta_split,
             transform=transform, class_augmentations=class_augmentations,
@@ -21,7 +23,7 @@ class ImagenetSketch(CombinationMetaDataset):
 class ImagenetSketchClassDataset(ClassDataset):
     def __init__(self, root, meta_train=False, meta_val=False, meta_test=False,
                  meta_split=None, transform=None, class_augmentations=None,
-                 download=False):
+                 download=True):  # Changed default download to True
         super(ImagenetSketchClassDataset, self).__init__(meta_train=meta_train,
             meta_val=meta_val, meta_test=meta_test, meta_split=meta_split,
             class_augmentations=class_augmentations)
@@ -41,15 +43,22 @@ class ImagenetSketchClassDataset(ClassDataset):
             'train_labels.json',  # Original torchmeta filename
         ]
 
+        # Ensure root directory exists
+        os.makedirs(self.root, exist_ok=True)
+
+        # Download dataset if requested or files are missing
+        if download:
+            self._download_dataset()
+
         # Find HDF5 file
         self.hdf5_path = self._find_file(potential_filenames)
         if not self.hdf5_path:
-            raise FileNotFoundError("Could not find HDF5 dataset file")
+            raise FileNotFoundError("Could not find HDF5 dataset file. Try downloading.")
 
         # Find labels file
         self.labels_path = self._find_file(potential_label_filenames)
         if not self.labels_path:
-            raise FileNotFoundError("Could not find labels file")
+            raise FileNotFoundError("Could not find labels file. Try downloading.")
 
         self._data_file = None
         self._data = None
@@ -57,6 +66,51 @@ class ImagenetSketchClassDataset(ClassDataset):
 
         # Populate labels and prepare dataset
         self._num_classes = len(self.labels)
+
+    def _download_dataset(self):
+        """
+        Download ImageNet Sketch dataset from Hugging Face
+        """
+        # HuggingFace repository details
+        repo = 'janellecai/imagenet_sketch_resized'
+        base_url = f'https://huggingface.co/{repo}/resolve/main/'
+        
+        # Files to download
+        files_to_download = {
+            'imagenet_sketch_resized.hdf5': 'train_data.hdf5',
+            'imagenet_sketch_labels.json': 'train_labels.json'
+        }
+
+        for remote_filename, local_filename in files_to_download.items():
+            local_path = os.path.join(self.root, local_filename)
+            remote_url = base_url + remote_filename
+
+            # Skip if file already exists
+            if os.path.exists(local_path):
+                print(f"{local_filename} already exists. Skipping download.")
+                continue
+
+            print(f"Downloading {remote_filename}...")
+            
+            # Streaming download with progress bar
+            response = requests.get(remote_url, stream=True)
+            response.raise_for_status()
+            
+            total_size = int(response.headers.get('content-length', 0))
+            block_size = 1024  # 1 Kibibyte
+            
+            with open(local_path, 'wb') as file, tqdm(
+                desc=local_filename,
+                total=total_size,
+                unit='iB',
+                unit_scale=True,
+                unit_divisor=1024,
+            ) as progress_bar:
+                for data in response.iter_content(block_size):
+                    size = file.write(data)
+                    progress_bar.update(size)
+
+            print(f"Download complete: {local_filename}")
 
     def _find_file(self, possible_filenames):
         """
@@ -76,6 +130,7 @@ class ImagenetSketchClassDataset(ClassDataset):
                     return full_path
         return None
 
+    # Rest of the code remains the same as in the original file
     def __getitem__(self, index):
         class_name = self.labels[index % self.num_classes]
         
@@ -144,4 +199,6 @@ class ImagenetSketchDataset(Dataset):
             image = self.transform(image)
 
         if self.target_transform is not None:
-            ta
+            target = self.target_transform(target)
+
+        return image, target
