@@ -8,6 +8,8 @@ from tqdm import tqdm
 from torchmeta.utils.data import Dataset, ClassDataset, CombinationMetaDataset
 import gdown
 import zipfile
+from torchvision.transforms import Lambda
+import random
 
 # Adjusted class splits as requested
 CLASS_SPLITS = {
@@ -163,35 +165,37 @@ class ImagenetSketchClassDataset(ClassDataset):
             with open(os.path.join(self.root, self.full_labels), 'r') as lf:
                 full_labels = json.load(lf)
 
-        unique_classes = sorted(set(full_labels))
+            unique_classes = list(set(full_labels))
+            random.shuffle(unique_classes)
+            # print(unique_classes)
 
-        # Updated class splits
-        train_range = CLASS_SPLITS['train']
-        val_range = CLASS_SPLITS['val']
-        test_range = CLASS_SPLITS['test']
+            # Updated class splits
+            train_range = CLASS_SPLITS['train']
+            val_range = CLASS_SPLITS['val']
+            test_range = CLASS_SPLITS['test']
 
-        train_classes = unique_classes[train_range[0]:train_range[1]]
-        val_classes = unique_classes[val_range[0]:val_range[1]]
-        test_classes = unique_classes[test_range[0]:test_range[1]]
+            train_classes = unique_classes[train_range[0]:train_range[1]]
+            val_classes = unique_classes[val_range[0]:val_range[1]]
+            test_classes = unique_classes[test_range[0]:test_range[1]]
 
-        train_class_names = [str(c) for c in train_classes]
-        val_class_names = [str(c) for c in val_classes]
-        test_class_names = [str(c) for c in test_classes]
+            train_class_names = [str(c) for c in train_classes]
+            val_class_names = [str(c) for c in val_classes]
+            test_class_names = [str(c) for c in test_classes]
 
-        # Group images by class
-        class_to_indices = {str(c): [] for c in unique_classes}
-        for i, lbl in enumerate(full_labels):
-            class_to_indices[str(lbl)].append(i)
+            # Group images by class
+            class_to_indices = {str(c): [] for c in unique_classes}
+            for i, lbl in enumerate(full_labels):
+                class_to_indices[str(lbl)].append(i)
 
-        self._write_split_files('train', train_class_names, class_to_indices, full_data)
-        self._write_split_files('val', val_class_names, class_to_indices, full_data)
-        self._write_split_files('test', test_class_names, class_to_indices, full_data)
+            self._write_split_files('train', train_class_names, class_to_indices, full_data)
+            self._write_split_files('val', val_class_names, class_to_indices, full_data)
+            self._write_split_files('test', test_class_names, class_to_indices, full_data)
 
     def _write_split_files(self, split, class_names, class_to_indices, full_data):
         split_data_path = os.path.join(self.root, self.filename.format(split))
         split_labels_path = os.path.join(self.root, self.filename_labels.format(split))
-        with h5py.File(split_data_path, 'w') as f:
-            group = f.create_group('datasets')
+        with h5py.File(split_data_path, 'w') as wf:
+            group = wf.create_group('datasets')
             for cn in class_names:
                 indices = class_to_indices[cn]
                 imgs = [full_data[str(i)][:] for i in indices]
@@ -210,6 +214,7 @@ class ImagenetSketchDataset(Dataset):
         self.data = data
         self.class_name = class_name
         self.images = self.data[self.class_name]
+        self.repeat_transform = Lambda(lambda x: x.repeat(3, 1, 1))
 
     def __len__(self):
         return self.images.shape[0]
@@ -218,6 +223,8 @@ class ImagenetSketchDataset(Dataset):
         image = Image.fromarray(self.images[idx])
         target = self.class_name
 
+        if image.shape[2] == 1:
+            image = self.repeat_transform(image)
         if self.transform is not None:
             image = self.transform(image)
         if self.target_transform is not None:
